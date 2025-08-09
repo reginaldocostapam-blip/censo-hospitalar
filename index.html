@@ -4,6 +4,43 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Censo Hospitalar - UPA Prof. Dr. Matheus Santamaria</title>
+    
+    <!-- Firebase SDK v9 (Modular) -->
+    <script type="module">
+        // Import Firebase
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+
+        // Configuração Firebase
+        const firebaseConfig = {
+            apiKey: "AIzaSyAnygRpinPE6q28sPOm9r_Nd_MU9sAbrr8",
+            authDomain: "censo-hospitalar-ea056.firebaseapp.com",
+            projectId: "censo-hospitalar-ea056",
+            storageBucket: "censo-hospitalar-ea056.firebasestorage.app",
+            messagingSenderId: "325226623979",
+            appId: "1:325226623979:web:843e71af0cb986bb2ddfae"
+        };
+
+        // Inicializar Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        
+        // Variáveis globais
+        window.pacientes = [];
+        window.db = db;
+        window.collection = collection;
+        window.addDoc = addDoc;
+        window.onSnapshot = onSnapshot;
+        window.deleteDoc = deleteDoc;
+        window.doc = doc;
+        window.updateDoc = updateDoc;
+
+        // Inicializar quando carregar
+        window.addEventListener('load', function() {
+            iniciar();
+        });
+    </script>
+    
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -345,15 +382,19 @@
     </div>
 
     <script>
-        var pacientes = [];
-
         function iniciar() {
             var hoje = new Date();
             document.getElementById('dataInternacao').value = hoje.toISOString().split('T')[0];
             document.getElementById('horaInternacao').value = hoje.toTimeString().slice(0, 5);
             
-            // Carregar dados salvos
-            carregarDados();
+            // Aguardar Firebase carregar e então escutar mudanças
+            setTimeout(function() {
+                if (window.db) {
+                    escutarMudancas();
+                } else {
+                    carregarDadosLocal();
+                }
+            }, 1000);
             
             setInterval(function() {
                 if (pacientes.length > 0) {
@@ -362,15 +403,70 @@
             }, 60000);
         }
 
-        function salvarDados() {
+        function escutarMudancas() {
             try {
-                localStorage.setItem('censo-hospitalar', JSON.stringify(pacientes));
-            } catch (e) {
-                // Fallback se localStorage não estiver disponível
+                const unsubscribe = window.onSnapshot(window.collection(window.db, 'pacientes'), (snapshot) => {
+                    pacientes = [];
+                    snapshot.forEach((doc) => {
+                        const dados = doc.data();
+                        dados.id = doc.id;
+                        pacientes.push(dados);
+                    });
+                    atualizar();
+                }, (error) => {
+                    console.error("Erro Firebase:", error);
+                    carregarDadosLocal();
+                });
+            } catch (error) {
+                console.error("Erro ao conectar Firebase:", error);
+                carregarDadosLocal();
             }
         }
 
-        function carregarDados() {
+        function salvarPacienteFirebase(dados) {
+            try {
+                window.addDoc(window.collection(window.db, 'pacientes'), dados).then(() => {
+                    alert('Paciente registrado com sucesso!');
+                }).catch((error) => {
+                    console.error("Erro ao salvar:", error);
+                    alert('Erro ao salvar. Tentando salvar localmente.');
+                    pacientes.push(dados);
+                    salvarDadosLocal();
+                    atualizar();
+                });
+            } catch (error) {
+                console.error("Firebase não disponível:", error);
+                pacientes.push(dados);
+                salvarDadosLocal();
+                atualizar();
+                alert('Dados salvos localmente (Firebase indisponível)');
+            }
+        }
+
+        function excluirPacienteFirebase(id) {
+            try {
+                window.deleteDoc(window.doc(window.db, 'pacientes', id)).then(() => {
+                    alert('Paciente excluído com sucesso!');
+                }).catch((error) => {
+                    console.error("Erro ao excluir:", error);
+                    alert('Erro ao excluir paciente.');
+                });
+            } catch (error) {
+                console.error("Firebase não disponível:", error);
+                alert('Erro: Firebase não disponível');
+            }
+        }
+
+        // Fallback para localStorage
+        function salvarDadosLocal() {
+            try {
+                localStorage.setItem('censo-hospitalar', JSON.stringify(pacientes));
+            } catch (e) {
+                console.error("Erro localStorage:", e);
+            }
+        }
+
+        function carregarDadosLocal() {
             try {
                 var dados = localStorage.getItem('censo-hospitalar');
                 if (dados) {
@@ -448,7 +544,8 @@
                 medico: document.getElementById('medico').value,
                 dataAlta: document.getElementById('dataAlta').value,
                 horaAlta: document.getElementById('horaAlta').value,
-                destino: document.getElementById('destino').value
+                destino: document.getElementById('destino').value,
+                timestamp: new Date().toISOString()
             };
 
             if (!dados.dataInternacao || !dados.horaInternacao || !dados.nome || 
@@ -458,16 +555,13 @@
                 return;
             }
 
-            pacientes.push(dados);
-            salvarDados(); // Salvar no navegador
-            atualizar();
+            // Salvar no Firebase
+            salvarPacienteFirebase(dados);
             limpar();
             
             var botao = document.querySelector('.btn-primary');
             botao.textContent = 'Registrar Paciente';
             botao.style.backgroundColor = '#3498db';
-            
-            alert('Paciente registrado com sucesso!');
         }
 
         function editar(index) {
@@ -500,10 +594,16 @@
         function excluir(index) {
             var p = pacientes[index];
             if (confirm('Excluir ' + p.nome + '?')) {
-                pacientes.splice(index, 1);
-                salvarDados(); // Salvar exclusão
-                atualizar();
-                alert('Paciente excluído!');
+                if (p.id) {
+                    // Excluir do Firebase
+                    excluirPacienteFirebase(p.id);
+                } else {
+                    // Fallback local
+                    pacientes.splice(index, 1);
+                    salvarDadosLocal();
+                    atualizar();
+                    alert('Paciente excluído!');
+                }
             }
         }
 
@@ -616,7 +716,8 @@
             this.value = formatarNome(this.value);
         });
 
-        window.onload = iniciar;
+        // Remover window.onload = iniciar; pois já está no módulo Firebase
+    </script>
     </script>
 </body>
 </html>
