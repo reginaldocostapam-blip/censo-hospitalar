@@ -311,6 +311,8 @@
                 <button class="btn btn-primary" onclick="registrar()">Registrar Paciente</button>
                 <button class="btn btn-secondary" onclick="limpar()">Limpar Formulário</button>
                 <button class="btn btn-success" onclick="atualizar()">Atualizar Tempos</button>
+                <button class="btn" onclick="exportarDados()" style="background-color: #9b59b6; color: white;">Exportar Dados</button>
+                <button class="btn" onclick="importarDados()" style="background-color: #e67e22; color: white;">Importar Dados</button>
             </div>
 
             <div class="table-section">
@@ -350,11 +352,34 @@
             document.getElementById('dataInternacao').value = hoje.toISOString().split('T')[0];
             document.getElementById('horaInternacao').value = hoje.toTimeString().slice(0, 5);
             
+            // Carregar dados salvos
+            carregarDados();
+            
             setInterval(function() {
                 if (pacientes.length > 0) {
                     atualizar();
                 }
             }, 60000);
+        }
+
+        function salvarDados() {
+            try {
+                localStorage.setItem('censo-hospitalar', JSON.stringify(pacientes));
+            } catch (e) {
+                // Fallback se localStorage não estiver disponível
+            }
+        }
+
+        function carregarDados() {
+            try {
+                var dados = localStorage.getItem('censo-hospitalar');
+                if (dados) {
+                    pacientes = JSON.parse(dados);
+                    atualizar();
+                }
+            } catch (e) {
+                pacientes = [];
+            }
         }
 
         function formatarNome(nome) {
@@ -434,6 +459,7 @@
             }
 
             pacientes.push(dados);
+            salvarDados(); // Salvar no navegador
             atualizar();
             limpar();
             
@@ -461,6 +487,7 @@
             document.getElementById('destino').value = p.destino;
             
             pacientes.splice(index, 1);
+            salvarDados(); // Salvar alteração
             atualizar();
             
             var botao = document.querySelector('.btn-primary');
@@ -474,6 +501,7 @@
             var p = pacientes[index];
             if (confirm('Excluir ' + p.nome + '?')) {
                 pacientes.splice(index, 1);
+                salvarDados(); // Salvar exclusão
                 atualizar();
                 alert('Paciente excluído!');
             }
@@ -537,6 +565,45 @@
             document.getElementById('dataAlta').value = '';
             document.getElementById('horaAlta').value = '';
             document.getElementById('destino').value = '';
+        }
+
+        function exportarDados() {
+            var dados = JSON.stringify(pacientes, null, 2);
+            var blob = new Blob([dados], { type: 'application/json' });
+            var url = URL.createObjectURL(blob);
+            var link = document.createElement('a');
+            link.href = url;
+            link.download = 'censo-hospitalar-' + new Date().toISOString().split('T')[0] + '.json';
+            link.click();
+            URL.revokeObjectURL(url);
+            alert('Dados exportados com sucesso!');
+        }
+
+        function importarDados() {
+            var input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.json';
+            input.onchange = function(event) {
+                var file = event.target.files[0];
+                if (file) {
+                    var reader = new FileReader();
+                    reader.onload = function(e) {
+                        try {
+                            var dados = JSON.parse(e.target.result);
+                            if (confirm('Importar dados? Isso substituirá os dados atuais.')) {
+                                pacientes = dados;
+                                salvarDados();
+                                atualizar();
+                                alert('Dados importados com sucesso!');
+                            }
+                        } catch (error) {
+                            alert('Erro ao importar dados. Verifique o arquivo.');
+                        }
+                    };
+                    reader.readAsText(file);
+                }
+            };
+            input.click();
         }
 
         document.getElementById('dataNascimento').addEventListener('change', function() {
